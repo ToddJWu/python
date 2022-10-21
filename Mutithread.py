@@ -1,6 +1,4 @@
 # 操作 browser 的 API
-from pickle import GLOBAL
-from pydoc import Doc
 from selenium import webdriver
 # from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options as ChromeOptions
@@ -27,9 +25,6 @@ from selenium.webdriver.common.keys import Keys
 # 強制等待 (執行期間休息一下)
 import time
 
-# 整理 json 使用的工具
-import json
-
 # 執行 command 的時候用的
 import os
 
@@ -39,27 +34,25 @@ import shutil
 
 from webdriver_manager.chrome import ChromeDriverManager
 
+from concurrent.futures import ThreadPoolExecutor
+
 
 URL = "https://www.gutenberg.org/browse/languages/zh"
 
-driver = None
-
 
 def initDirver():
-    service = ChromeService(executable_path=ChromeDriverManager().install())
+    service = ChromeService(ChromeDriverManager().install())
     options = ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--log-level=3')
 
-    global driver
-    driver = webdriver.Chrome(options=options, service=service)
+    return webdriver.Chrome(options=options, service=service)
 
 
-def getBookNames(num=10) -> list:
-    print("Scraping Books' Name...")
-    driver.get(URL)
+def getBookNames(driver, num=200) -> list:
+    print("Scraping Names...", end="")
     try:
         titles = WebDriverWait(driver, 5).until(
             EC.presence_of_all_elements_located(
@@ -76,120 +69,71 @@ def getBookNames(num=10) -> list:
                 bookNames.append(title.text)
                 if len(bookNames) >= num:
                     break
-    print("Done.\n")
+    print("Done.")
 
     return bookNames
 
 
-# def getBookContests(bookNames: list) -> dict:
-#     books = {}
+def getBookContests(driver, bookNames: list) -> dict:
+    books = {}
 
-#     print("Scraping Books' Contests...")
-#     for bookname in bookNames:
-#         driver.get(URL)
+    print("Scraping Contests...", end="")
+    for bookname in bookNames:
+        driver.get(URL)
 
-#         # Click on The Book Name
-#         try:
-#             WebDriverWait(driver, 5).until(
-#                 EC.presence_of_element_located(
-#                     (By.LINK_TEXT, bookname)
-#                 )
-#             ).click()
+        # Click on The Book Name
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.LINK_TEXT, bookname)
+                )
+            ).click()
 
-#         except TimeoutException:
-#             print("Books Meun Page 等待逾時!")
+        except TimeoutException:
+            print("Books Meun Page 等待逾時!")
 
-#         # Click on Selected Source(Plain Text UTF-8)
-#         try:
-#             WebDriverWait(driver, 5).until(
-#                 EC.presence_of_element_located(
-#                     (By.LINK_TEXT, "Plain Text UTF-8")
-#                 )
-#             ).click()
+        # Click on Selected Source(Plain Text UTF-8)
+        try:
+            WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.LINK_TEXT, "Plain Text UTF-8")
+                )
+            ).click()
 
-#         except TimeoutException:
-#             print("Select Download Sources Page 等待逾時!")
+        except TimeoutException:
+            print("Select Download Sources Page 等待逾時!")
 
-#         # Get The Book Contest
-#         try:
-#             pre_texts = WebDriverWait(driver, 5).until(
-#                 EC.presence_of_element_located(
-#                     (By.TAG_NAME, "pre")
-#                 )
-#             )
-#             contents = re.findall("[\u4E00-\u9FFF]+[\W]+", pre_texts.text)
-
-#         except TimeoutException:
-#             print("Source Page 等待逾時!")
-
-#         books[bookname] = contents
-
-#     print("Done.\n")
-#     return books
-
-def getBookContests(name: str) -> list:
-    # books = {}
-
-    # print("Scraping Books' Contests...")
-    # for bookname in bookNames:
-    # driver.switch_to.new_window('tab')
-    driver.get(URL)
-
-    # Click on The Book Name
-    try:
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located(
-                (By.LINK_TEXT, name)
+        # Get The Book Contest
+        try:
+            pre_texts = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located(
+                    (By.TAG_NAME, "pre")
+                )
             )
-        ).click()
+            contents = re.findall("[\u4E00-\u9FFF]+[\W]+", pre_texts.text)
 
-    except TimeoutException:
-        print("Books Meun Page 等待逾時!")
+        except TimeoutException:
+            print("Source Page 等待逾時!")
 
-    # Click on Selected Source(Plain Text UTF-8)
-    try:
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located(
-                (By.LINK_TEXT, "Plain Text UTF-8")
-            )
-        ).click()
+        books[bookname] = contents
 
-    except TimeoutException:
-        print("Select Download Sources Page 等待逾時!")
-
-    # Get The Book Contest
-    try:
-        pre_texts = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located(
-                (By.TAG_NAME, "pre")
-            )
-        )
-        contents = re.findall("[\u4E00-\u9FFF]+[\W]+", pre_texts.text)
-
-    except TimeoutException:
-        print("Source Page 等待逾時!")
-
-    # books[bookname] = contents
-
-    # print("Done.\n")
-    driver.close()
-    return contents
+    print("Done.")
+    return books
 
 
 def getBooks(books: dict, filePath) -> None:
     print("Initializing File...")
     if os.path.exists(filePath):
-        # print("Removing Old File...")
+        print("Removing Old File...")
         shutil.rmtree(filePath)
 
-        # print("Creating New File...")
+        print("Creating New File...", end="")
         os.mkdir(filePath)
     else:
-        # print("Creating New File...")
+        print("Creating New File...", end="")
         os.mkdir(filePath)
 
-    print("Done.\n")
-    print("Downloading Books to File...")
+    print("Done.")
     for name, content in books.items():
         name_ = re.sub(r"\s|:", " ", name)
         with open(f"{filePath}/{name_}.txt", "ab") as f:
@@ -202,59 +146,34 @@ def getBooks(books: dict, filePath) -> None:
 
 def main():
     start_time = time.time()
-    initDirver()
 
-    book_names = getBookNames()
+    driver1 = initDirver()
+    driver2 = initDirver()
+    driver1.get(URL)
+    driver2.get(URL)
 
-    driver.get(URL)
-    ac = ActionChains(driver)
-    # Click on The Book Name
-    for name in book_names:
-        try:
-            a = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located(
-                    (By.LINK_TEXT, name)
-                )
-            )
-        except TimeoutException:
-            print("Books Meun Page 等待逾時!")
+    book_names = getBookNames(driver1)
 
-        ac.key_down(Keys.COMMAND).click(a).key_up(Keys.COMMAND).perform()
+    half = len(book_names) // 2
 
-    txt = []
-    for window_handle in driver.window_handles[1:]:
-        driver.switch_to.window(window_handle)
-        # Click on Selected Source(Plain Text UTF-8)
-        try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located(
-                    (By.LINK_TEXT, "Plain Text UTF-8")
-                )
-            ).click()
+    with ThreadPoolExecutor() as executor:
+        books_temp1 = executor.submit(
+            getBookContests, driver1, book_names[:half])
+        books_temp2 = executor.submit(
+            getBookContests, driver2, book_names[half:])
+    books = books_temp1.result() | books_temp2.result()
 
-        except TimeoutException:
-            print("Select Download Sources Page 等待逾時!")
+    # books_temp1 = getBookContests(driver1, book_names[:half])
+    # books_temp2 = getBookContests(driver2, book_names[half:])
+    # books = books_temp1 | books_temp2
 
-    for window_handle in driver.window_handles[1:]:
-        driver.switch_to.window(window_handle)
-        # Get The Book Contest
-        try:
-            pre_texts = WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located(
-                    (By.TAG_NAME, "pre")
-                )
-            )
-            contents = re.findall("[\u4E00-\u9FFF]+[\W]+", pre_texts.text)
+    # books = getBookContests(driver1, book_names)
 
-        except TimeoutException:
-            print("Source Page 等待逾時!")
-        
-        txt.append(contents)
-    print(len(txt))
-    # books = getBookContests(book_names)
+    getBooks(books, "Bookshelf_Selenium")
 
-    # getBooks(books, "Bookshelf_Selenium")
-    driver.quit()
+    driver1.quit()
+    driver2.quit()
+
     print(f"RunTime: {(time.time() - start_time):4.1f} s")
 
 
