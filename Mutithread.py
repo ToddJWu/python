@@ -34,7 +34,7 @@ import shutil
 
 from webdriver_manager.chrome import ChromeDriverManager
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 
 URL = "https://www.gutenberg.org/browse/languages/zh"
@@ -51,7 +51,7 @@ def initDirver():
     return webdriver.Chrome(options=options, service=service)
 
 
-def getBookNames(driver, num=200) -> list:
+def getBookNames(driver, limit: int = 200) -> list:
     print("Scraping Names...", end="")
     try:
         titles = WebDriverWait(driver, 5).until(
@@ -67,7 +67,7 @@ def getBookNames(driver, num=200) -> list:
         if re.search(r"[\u4E00-\u9FFF]+", title.text):
             if title.text not in bookNames:
                 bookNames.append(title.text)
-                if len(bookNames) >= num:
+                if len(bookNames) >= limit:
                     break
     print("Done.")
 
@@ -77,7 +77,7 @@ def getBookNames(driver, num=200) -> list:
 def getBookContests(driver, bookNames: list) -> dict:
     books = {}
 
-    print("Scraping Contests...", end="")
+    print("Scraping Contests...")
     for bookname in bookNames:
         driver.get(URL)
 
@@ -144,35 +144,60 @@ def getBooks(books: dict, filePath) -> None:
     print(f"{len(os.listdir(filePath))} Books Downloaded.")
 
 
+def mutithread(book_names: list, n=2) -> dict:
+    driver = {}
+    for i in range(n):
+        driver["d"+str(i)] = initDirver()
+
+    for d in driver.keys():
+        driver[d].get(URL)
+
+    temp = [book_names[i:i + n] for i in range(0, len(book_names), n)]
+
+    with ThreadPoolExecutor() as executor:
+        results = [executor.submit(getBookContests, driver[driver_], temp_)
+                   for driver_, temp_ in zip(driver.keys(), temp)]
+
+    for d in driver.keys():
+        driver[d].quit()
+
+    books = {}
+    for future in as_completed(results):
+        # books.update(future.result())
+        print(type(future.result()))
+
+    return books
+
+
 def main():
     start_time = time.time()
 
-    driver1 = initDirver()
-    driver2 = initDirver()
-    driver1.get(URL)
-    driver2.get(URL)
+    driver = initDirver()
+    driver.get(URL)
+    book_names = getBookNames(driver)
+    driver.quit()
 
-    book_names = getBookNames(driver1)
+    books = mutithread(book_names, n=4)
+    # half = len(book_names) // 2
 
-    half = len(book_names) // 2
+    # with ThreadPoolExecutor() as executor:
+    #     books_temp1 = executor.submit(
+    #         getBookContests, driver1, book_names[:half])
+    #     books_temp2 = executor.submit(
+    #         getBookContests, driver2, book_names[half:])
 
-    with ThreadPoolExecutor() as executor:
-        books_temp1 = executor.submit(
-            getBookContests, driver1, book_names[:half])
-        books_temp2 = executor.submit(
-            getBookContests, driver2, book_names[half:])
-    books = books_temp1.result() | books_temp2.result()
+    # books = books_temp1.result() | books_temp2.result()
+
+    # driver1.quit()
+    # driver2.quit()
+
+    getBooks(books, "Bookshelf_Selenium")
 
     # books_temp1 = getBookContests(driver1, book_names[:half])
     # books_temp2 = getBookContests(driver2, book_names[half:])
     # books = books_temp1 | books_temp2
 
     # books = getBookContests(driver1, book_names)
-
-    getBooks(books, "Bookshelf_Selenium")
-
-    driver1.quit()
-    driver2.quit()
 
     print(f"RunTime: {(time.time() - start_time):4.1f} s")
 
