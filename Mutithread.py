@@ -16,12 +16,6 @@ from selenium.webdriver.support import expected_conditions as EC
 # 期待元素出現要透過什麼方式指定，通常與 EC、WebDriverWait 一起使用
 from selenium.webdriver.common.by import By
 
-# 加入行為鍊 ActionChain (在 WebDriver 中模擬滑鼠移動、點繫、拖曳、按右鍵出現選單，以及鍵盤輸入文字、按下鍵盤上的按鈕等)
-from selenium.webdriver.common.action_chains import ActionChains
-from selenium.webdriver.common.keys import Keys
-
-# from webdriver_manager.chrome import ChromeDriverManager
-
 # 強制等待 (執行期間休息一下)
 import time
 
@@ -38,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_compl
 
 
 URL = "https://www.gutenberg.org/browse/languages/zh"
+fileName = "Bookshelf_Selenium"
 
 
 def initDirver():
@@ -51,8 +46,10 @@ def initDirver():
     return webdriver.Chrome(options=options, service=service)
 
 
-def getBookNames(driver, limit: int = 200) -> list:
-    print("Scraping Names...", end="")
+def getBookNames(limit: int = 200) -> list:
+    print("Scraping Names...")
+    driver = initDirver()
+    driver.get(URL)
     try:
         titles = WebDriverWait(driver, 5).until(
             EC.presence_of_all_elements_located(
@@ -61,6 +58,7 @@ def getBookNames(driver, limit: int = 200) -> list:
         )
     except TimeoutException:
         print("Books Meun Page 等待逾時!")
+    driver.quit()
 
     bookNames = []
     for title in titles:
@@ -74,7 +72,7 @@ def getBookNames(driver, limit: int = 200) -> list:
     return bookNames
 
 
-def getBookContests(driver, bookNames: list) -> dict:
+def getBookContests(driver: webdriver, bookNames: list) -> dict:
     books = {}
 
     print("Scraping Contests...")
@@ -132,72 +130,49 @@ def getBooks(books: dict, filePath) -> None:
     else:
         print("Creating New File...", end="")
         os.mkdir(filePath)
-
     print("Done.")
+
     for name, content in books.items():
         name_ = re.sub(r"\s|:", " ", name)
         with open(f"{filePath}/{name_}.txt", "ab") as f:
             f.write(" ".join(content).encode())
 
-        # print(f"{name}", end=" ")
-
     print(f"{len(os.listdir(filePath))} Books Downloaded.")
 
 
-def mutithread(book_names: list, n=2) -> dict:
+def multiThread(book_names: list, driver_numbers: int = 2) -> dict:
     driver = {}
-    for i in range(n):
+    for i in range(driver_numbers):
         driver["d"+str(i)] = initDirver()
 
-    for d in driver.keys():
-        driver[d].get(URL)
+    for driver_ in driver.keys():
+        driver[driver_].get(URL)
 
-    temp = [book_names[i:i + n] for i in range(0, len(book_names), n)]
+    size = len(book_names) // driver_numbers
+    temp = [book_names[i:i + size] for i in range(0, len(book_names), size)]
 
     with ThreadPoolExecutor() as executor:
         results = [executor.submit(getBookContests, driver[driver_], temp_)
                    for driver_, temp_ in zip(driver.keys(), temp)]
 
-    for d in driver.keys():
-        driver[d].quit()
+    for driver_ in driver.keys():
+        driver[driver_].quit()
 
     books = {}
     for future in as_completed(results):
-        # books.update(future.result())
-        print(type(future.result()))
+        books.update(future.result())
 
     return books
 
 
-def main():
+def main() -> None:
     start_time = time.time()
 
-    driver = initDirver()
-    driver.get(URL)
-    book_names = getBookNames(driver)
-    driver.quit()
+    book_names = getBookNames()
 
-    books = mutithread(book_names, n=4)
-    # half = len(book_names) // 2
+    books = multiThread(book_names, driver_numbers=4)
 
-    # with ThreadPoolExecutor() as executor:
-    #     books_temp1 = executor.submit(
-    #         getBookContests, driver1, book_names[:half])
-    #     books_temp2 = executor.submit(
-    #         getBookContests, driver2, book_names[half:])
-
-    # books = books_temp1.result() | books_temp2.result()
-
-    # driver1.quit()
-    # driver2.quit()
-
-    getBooks(books, "Bookshelf_Selenium")
-
-    # books_temp1 = getBookContests(driver1, book_names[:half])
-    # books_temp2 = getBookContests(driver2, book_names[half:])
-    # books = books_temp1 | books_temp2
-
-    # books = getBookContests(driver1, book_names)
+    getBooks(books, fileName)
 
     print(f"RunTime: {(time.time() - start_time):4.1f} s")
 
