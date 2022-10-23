@@ -34,22 +34,25 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_compl
 URL = "https://www.gutenberg.org/browse/languages/zh"
 fileName = "Bookshelf_Selenium"
 
+# Create and Set the driver
+
 
 def initDirver():
+    # Auto download driver
     service = ChromeService(ChromeDriverManager().install())
     options = ChromeOptions()
-    options.add_argument('--headless')
+    options.add_argument('--headless')  # Run in Background
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--log-level=3')
 
     return webdriver.Chrome(options=options, service=service)
 
+# Get list of book's name
 
-def getBookNames(limit: int = 200) -> list:
+
+def getBookNames(driver, limit: int = 200) -> list:
     print("Scraping Names...")
-    driver = initDirver()
-    driver.get(URL)
     try:
         titles = WebDriverWait(driver, 5).until(
             EC.presence_of_all_elements_located(
@@ -58,11 +61,12 @@ def getBookNames(limit: int = 200) -> list:
         )
     except TimeoutException:
         print("Books Meun Page 等待逾時!")
-    driver.quit()
 
     bookNames = []
     for title in titles:
+        # Get only chinese books
         if re.search(r"[\u4E00-\u9FFF]+", title.text):
+            # Not get the same book
             if title.text not in bookNames:
                 bookNames.append(title.text)
                 if len(bookNames) >= limit:
@@ -71,14 +75,14 @@ def getBookNames(limit: int = 200) -> list:
 
     return bookNames
 
+# Get books' contests
+
 
 def getBookContests(driver: webdriver, bookNames: list) -> dict:
     books = {}
 
     print("Scraping Contests...")
     for bookname in bookNames:
-        driver.get(URL)
-
         # Click on The Book Name
         try:
             WebDriverWait(driver, 5).until(
@@ -115,8 +119,12 @@ def getBookContests(driver: webdriver, bookNames: list) -> dict:
 
         books[bookname] = contents
 
+        driver.get(URL)  # Back to books-list page
+
     print("Done.")
     return books
+
+# Download books to local file
 
 
 def getBooks(books: dict, filePath) -> None:
@@ -125,39 +133,46 @@ def getBooks(books: dict, filePath) -> None:
         print("Removing Old File...")
         shutil.rmtree(filePath)
 
-        print("Creating New File...", end="")
+        print("Creating New File...")
         os.mkdir(filePath)
     else:
-        print("Creating New File...", end="")
+        print("Creating New File...")
         os.mkdir(filePath)
     print("Done.")
 
     for name, content in books.items():
-        name_ = re.sub(r"\s|:", " ", name)
+        name_ = re.sub(r"\s|:", " ", name)  # Strip special char
         with open(f"{filePath}/{name_}.txt", "ab") as f:
             f.write(" ".join(content).encode())
 
-    print(f"{len(os.listdir(filePath))} Books Downloaded.")
+    print(f"\n{len(os.listdir(filePath))} Books Downloaded.")
+
+# Use Multi-Thread to scrap contests
 
 
 def multiThread(book_names: list, driver_numbers: int = 2) -> dict:
     driver = {}
+    # Initialize the number of driver
     for i in range(driver_numbers):
-        driver["d"+str(i)] = initDirver()
+        driver[str(i)] = initDirver()
 
     for driver_ in driver.keys():
         driver[driver_].get(URL)
 
+    # Slice booknames list to the number of driver
     size = len(book_names) // driver_numbers
     temp = [book_names[i:i + size] for i in range(0, len(book_names), size)]
 
+    # Get contests by multi-thread
     with ThreadPoolExecutor() as executor:
         results = [executor.submit(getBookContests, driver[driver_], temp_)
                    for driver_, temp_ in zip(driver.keys(), temp)]
 
+    # Quit drivers
     for driver_ in driver.keys():
         driver[driver_].quit()
 
+    # Merge data from multi-thread output
     books = {}
     for future in as_completed(results):
         books.update(future.result())
@@ -168,7 +183,10 @@ def multiThread(book_names: list, driver_numbers: int = 2) -> dict:
 def main() -> None:
     start_time = time.time()
 
-    book_names = getBookNames()
+    driver = initDirver()
+    driver.get(URL)
+    book_names = getBookNames(driver, limit=100)
+    driver.quit()
 
     books = multiThread(book_names, driver_numbers=4)
 
