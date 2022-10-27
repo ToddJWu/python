@@ -1,4 +1,6 @@
 # 操作 browser 的 API
+from ast import Global
+from msilib.schema import Upgrade
 from selenium import webdriver
 
 # from selenium.webdriver.chrome.service import Service
@@ -6,7 +8,7 @@ from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.chrome.service import Service as ChromeService
 
 # 處理逾時例外的工具
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
 # 面對動態網頁，等待某個元素出現的工具，通常與 exptected_conditions 搭配
 from selenium.webdriver.support.ui import WebDriverWait
@@ -22,13 +24,15 @@ from selenium.webdriver.common.action_chains import ActionChains
 
 from webdriver_manager.chrome import ChromeDriverManager
 
+
 # 強制等待 (執行期間休息一下)
-import time, re
+import time
+import re
 
 # 隨機取得 User-Agent
-from fake_useragent import UserAgent
+# from fake_useragent import UserAgent
 
-ua = UserAgent(cache=True)  # cache=True 表示從已經儲存的列表中提取
+# ua = UserAgent(cache=True)  # cache=True 表示從已經儲存的列表中提取
 
 URL = "https://orteil.dashnet.org/cookieclicker/"
 
@@ -40,8 +44,7 @@ options.add_argument("--no-sandbox")
 options.add_argument("--incognito")  # 開啟無痕模式
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--log-level=3")
-options.add_argument(f"--user-agent={ua.random}")
-
+# options.add_argument(f"--user-agent={ua.random}")
 
 driver = webdriver.Chrome(options=options, service=service)
 driver.execute_cdp_cmd(
@@ -49,58 +52,78 @@ driver.execute_cdp_cmd(
     {
         "source": """
     Object.defineProperty(navigator, 'webdriver', {
-      get: () => undefined
+    get: () => undefined
     })
-  """
+"""
     },
 )
-driver.get(URL)
-
-try:
-    WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.CSS_SELECTOR, "div#langSelect-EN"))
-    ).click()
-
-except TimeoutException:
-    print("等待逾時!")
-
-time.sleep(3)
-
-bigCookie = driver.find_element(By.ID, "bigCookie")
-# try:
-#     bigCookie = WebDriverWait(driver, 15).until(
-#         EC.presence_of_element_located((By.ID, "bigCookie"))
-#     )
-# except TimeoutException:
-#     print("等待逾時!")
 
 
-cookies = driver.find_element(By.ID, "cookies")
-# try:
-#    cookies = WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "cookies")))
-
-# except TimeoutException:
-#     print("等待逾時!")
-
-while (cookie_count := int(re.sub(",", "", cookies.text.split(" ")[0]))) < 10000:
-    # if cookie_count >= 100:
-    #     upgrade0 = driver.find_element(By.XPATH, "//*[@id='upgrade0']")
-    #     ActionChains(driver).move_to_element(upgrade0).click().perform()
+def getCookiesCount() -> int:
     try:
-        WebDriverWait(driver, 1).until(EC.element_to_be_clickable((By.XPATH, "//*[@id='upgrade0']"))).click()
+        cookies = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div#cookies")))
+        temp = cookies.text.split(" ")[0]
+
     except TimeoutException:
-        pass
+        print("等待逾時!")
 
-    # items = driver.find_elements(By.CSS_SELECTOR, "span.price")
-    # for item in items[::-1]:
-    #     if item.text != "":
-    #         price = int(re.sub(",", "", item.text))
-    #         if cookie_count >= price:
-    #             ActionChains(driver).move_to_element(item).click().perform()
+    cookieCount = int(re.sub(",", "", temp))
 
-    ActionChains(driver).move_to_element(bigCookie).click().pause(0.0001).perform()
+    return cookieCount
 
-time.sleep(10)
 
-print("Driver Closing")
-driver.quit()
+def getUpgradableItems():
+    upgrade_lst = []
+
+    try:
+        items = driver.find_elements(
+            By.CSS_SELECTOR, "div.product.unlocked.enabled")
+        upgrade = driver.find_element(
+            By.CSS_SELECTOR, "div.crate.upgrade.enabled")
+    except NoSuchElementException:
+        upgrade = ""
+
+    upgrade_lst.append(upgrade)
+
+    for item in items[::-1]:
+        upgrade_lst.append(item)
+
+    return upgrade_lst
+
+
+def main():
+
+    driver.get(URL)
+    ac = ActionChains(driver)
+
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "div#langSelect-EN"))
+        ).click()
+
+    except TimeoutException:
+        print("等待逾時!")
+
+    try:
+        bigCookie = WebDriverWait(driver, 15).until(
+            EC.presence_of_element_located((By.ID, "bigCookie"))
+        )
+    except TimeoutException:
+        print("等待逾時!")
+
+    while getCookiesCount() < 10000:
+        for item in getUpgradableItems():
+            if item != "":
+                ac.move_to_element(item).click()
+
+        ac.move_to_element(bigCookie).click()
+
+        ac.perform()
+
+    print("Driver Closed")
+    driver.quit()
+
+
+main()
