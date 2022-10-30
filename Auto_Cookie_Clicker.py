@@ -113,7 +113,7 @@ def main():
     except TimeoutException:
         print("等待逾時!")
 
-    while getCookiesCount() < 10000:
+    while getCookiesCount() < 100000:
         for item in getUpgradableItems():
             if item != "":
                 ac.move_to_element(item).click()

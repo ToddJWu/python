@@ -33,27 +33,34 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_compl
 
 
 URL = "https://www.gutenberg.org/browse/languages/zh"
-fileName = "Bookshelf_Selenium"
+FILE_NAME = "Bookshelf_Selenium"
 
 # Create and Set the driver
+
+
 def initDirver():
     # Auto download driver
     service = ChromeService(ChromeDriverManager().install())
     options = ChromeOptions()
-    options.add_argument("--headless")  # Run in Background
+    # options.add_argument("--headless")  # Run in Background
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--log-level=3")
+    # options.add_argument("--log-level=3")
 
     return webdriver.Chrome(options=options, service=service)
 
 
 # Get list of book's name
-def getBookNames(driver, limit: int = 200) -> list:
+def getBookNames(limit: int = 200) -> list:
+
+    driver = initDirver()
+    driver.get(URL)
+
     print("Scraping Names...")
     try:
-        titles = WebDriverWait(driver, 5).until(
-            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "li.pgdbetext > a"))
+        titles = WebDriverWait(driver, 15).until(
+            EC.presence_of_all_elements_located(
+                (By.CSS_SELECTOR, "li.pgdbetext > a"))
         )
     except TimeoutException:
         print("Books Meun Page 等待逾時!")
@@ -69,6 +76,7 @@ def getBookNames(driver, limit: int = 200) -> list:
                     break
     print("Done.")
 
+    driver.quit()
     return bookNames
 
 
@@ -90,7 +98,8 @@ def getBookContests(driver: webdriver, bookNames: list) -> dict:
         # Click on Selected Source(Plain Text UTF-8)
         try:
             WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.LINK_TEXT, "Plain Text UTF-8"))
+                EC.presence_of_element_located(
+                    (By.LINK_TEXT, "Plain Text UTF-8"))
             ).click()
 
         except TimeoutException:
@@ -148,7 +157,7 @@ def multiThread(book_names: list, driver_numbers: int = 2) -> dict:
 
     # Slice booknames list to the number of driver
     size = len(book_names) // driver_numbers
-    temp = [book_names[i : i + size] for i in range(0, len(book_names), size)]
+    temp = [book_names[i: i + size] for i in range(0, len(book_names), size)]
 
     # Get contests by multi-thread
     books = {}
@@ -171,14 +180,11 @@ def multiThread(book_names: list, driver_numbers: int = 2) -> dict:
 def main() -> None:
     start_time = time.time()
 
-    driver = initDirver()
-    driver.get(URL)
-    book_names = getBookNames(driver, limit=100)
-    driver.quit()
+    book_names = getBookNames(limit=200)
 
     books = multiThread(book_names, driver_numbers=4)
 
-    getBooks(books, fileName)
+    getBooks(books, FILE_NAME)
 
     print(f"RunTime: {(time.time() - start_time):4.1f} s")
 
